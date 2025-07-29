@@ -1,0 +1,59 @@
+stages:
+  - build
+  - test
+  - docker
+  - deploy
+
+variables:
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end"
+  DOCKER_REGISTRY: registry.gitlab.com/$CI_PROJECT_PATH
+
+cache:
+  paths:
+    - .m2/repository
+
+before_script:
+  - echo "CI started for $CI_PROJECT_NAME"
+
+build:
+  stage: build
+  image: maven:3.9.6-eclipse-temurin-17
+  script:
+    - mvn $MAVEN_CLI_OPTS clean compile
+
+unit_tests:
+  stage: test
+  image: maven:3.9.6-eclipse-temurin-17
+  script:
+    - mvn $MAVEN_CLI_OPTS test
+
+docker_build_push:
+  stage: docker
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - echo "$CI_JOB_TOKEN" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t $DOCKER_REGISTRY/user-service:latest ./user-service
+    - docker push $DOCKER_REGISTRY/user-service:latest
+    - docker build -t $DOCKER_REGISTRY/order-service:latest ./order-service
+    - docker push $DOCKER_REGISTRY/order-service:latest
+    - docker build -t $DOCKER_REGISTRY/product-service:latest ./product-service
+    - docker push $DOCKER_REGISTRY/product-service:latest
+    - docker build -t $DOCKER_REGISTRY/payment-service:latest ./payment-service
+    - docker push $DOCKER_REGISTRY/payment-service:latest
+    - docker build -t $DOCKER_REGISTRY/notification-service:latest ./notification-service
+    - docker push $DOCKER_REGISTRY/notification-service:latest
+    - docker build -t $DOCKER_REGISTRY/audit-service:latest ./audit-service
+    - docker push $DOCKER_REGISTRY/audit-service:latest
+    - docker build -t $DOCKER_REGISTRY/api-gateway:latest ./api-gateway
+    - docker push $DOCKER_REGISTRY/api-gateway:latest
+
+deploy_k8s:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context $KUBE_CONTEXT
+    - helm upgrade --install turbo-store ./charts/turbo-store-chart -f charts/turbo-store-chart/values.yaml
+  only:
+    - main
